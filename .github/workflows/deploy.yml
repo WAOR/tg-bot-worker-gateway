@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - main
-      - master
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
-  deploy:
+  # ── Job 1: Build Verification (runs on every push & PR) ────────────────
+  build:
+    name: 🔨 Build Verification (dry-run)
     runs-on: ubuntu-latest
-    name: Deploy Worker
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -19,9 +22,44 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Install Dependencies
-        run: npm ci || npm install
+        run: npm ci
+
+      - name: Wrangler Dry-Run Build
+        run: npx wrangler deploy --dry-run --outdir dist/
+        env:
+          # Wrangler needs an account ID for dry-run even without deploying
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify Output Bundle Exists
+        run: |
+          echo "📦 Build output:"
+          ls -lh dist/
+          test -f dist/*.js && echo "✅ Bundle file found." || (echo "❌ No bundle file found!" && exit 1)
+
+  # ── Job 2: Deploy (only on push to main, after build passes) ───────────
+  deploy:
+    name: 🚀 Deploy to Cloudflare Workers
+    runs-on: ubuntu-latest
+    needs: build                   # Must pass build verification first
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: https://tg-bot-worker-gateway.${{ secrets.CLOUDFLARE_SUBDOMAIN }}.workers.dev
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
