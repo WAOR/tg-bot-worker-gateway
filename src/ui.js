@@ -533,6 +533,37 @@ export function renderDashboardHtml(baseUrl = "") {
       transform: translateY(0);
       opacity: 1;
     }
+
+    /* Security warning badge on bot cards */
+    .security-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: var(--warning);
+      margin-top: 0.5rem;
+    }
+
+    .form-help-warn {
+      font-size: 0.75rem;
+      color: var(--warning);
+      margin-top: 0.35rem;
+    }
+
+    .btn-gen {
+      background: rgba(99, 102, 241, 0.15);
+      color: #a5b4fc;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+    }
+
+    .btn-gen:hover {
+      background: rgba(99, 102, 241, 0.25);
+    }
   </style>
 </head>
 <body>
@@ -563,8 +594,8 @@ export function renderDashboardHtml(baseUrl = "") {
       <h2 class="auth-title">网关后台登录</h2>
       <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.25rem;">请输入 ADMIN_PASSWORD 管理密码</p>
       <div class="form-group">
-        <input type="password" id="admin-pass-input" class="form-control" placeholder="管理员密码 (默认: admin)" value="admin" onkeyup="if(event.key==='Enter') loginAdmin()">
-        <div class="form-help" style="margin-top: 0.5rem; color: #7dd3fc;">💡 提示：默认本地/初始密码为 <code>admin</code></div>
+        <!-- [CRED-1] No default value pre-filled; no hint about default password -->
+        <input type="password" id="admin-pass-input" class="form-control" placeholder="请输入管理员密码" autocomplete="current-password" onkeyup="if(event.key==='Enter') loginAdmin()">
       </div>
       <button class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 0.5rem;" onclick="loginAdmin()">验证登录</button>
       <div id="auth-error-msg" style="color: var(--danger); font-size: 0.85rem; margin-top: 0.75rem; display: none;"></div>
@@ -635,8 +666,12 @@ export function renderDashboardHtml(baseUrl = "") {
           <div class="form-help">若配置，网关会将 Telegram 调用的 Webhook 实时转派至此地址</div>
         </div>
         <div class="form-group">
-          <label class="form-label">Secret Token 验证密钥 (选填)</label>
-          <input type="text" id="form-bot-secret" class="form-control" placeholder="自定义安全密钥">
+          <label class="form-label">Secret Token 验证密钥 <span style="color:var(--warning);font-size:0.75rem;">⚠️ 强烈建议设置</span></label>
+          <div style="display:flex;gap:0.5rem;">
+            <input type="text" id="form-bot-secret" class="form-control" placeholder="自定义安全密钥（至少16位随机字符）">
+            <button type="button" class="btn btn-gen btn-sm" onclick="generateSecret()" title="自动生成随机密钥" style="white-space:nowrap;">🎲 生成</button>
+          </div>
+          <div class="form-help-warn">⚠️ 未设置 Secret Token 时，/proxy/ 和 /webhook/ 路由将被锁定（403）</div>
         </div>
         <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
           <button type="button" class="btn btn-secondary" onclick="closeModal('bot-modal')">取消</button>
@@ -715,12 +750,14 @@ export function renderDashboardHtml(baseUrl = "") {
     let currentTestBot = null;
     let currentWebhookBot = null;
 
+    // [AUTH-1] Use sessionStorage instead of localStorage to limit XSS exposure window
+    // (session is cleared when the tab is closed)
     function getAdminPassword() {
-      return localStorage.getItem('tg_gateway_admin_pass') || '';
+      return sessionStorage.getItem('tg_gateway_admin_pass') || '';
     }
 
     function setAdminPassword(pass) {
-      localStorage.setItem('tg_gateway_admin_pass', pass);
+      sessionStorage.setItem('tg_gateway_admin_pass', pass);
     }
 
     function showToast(msg, isError = false) {
@@ -795,7 +832,7 @@ export function renderDashboardHtml(baseUrl = "") {
     }
 
     function logoutAdmin() {
-      localStorage.removeItem('tg_gateway_admin_pass');
+      sessionStorage.removeItem('tg_gateway_admin_pass');
       showAuthScreen();
     }
 
@@ -856,13 +893,19 @@ export function renderDashboardHtml(baseUrl = "") {
               <div class="bot-meta">
                 <div class="meta-row">
                   <span>Bot Token:</span>
-                  <span class="meta-val">\${bot.token.substring(0, 8)}...:\${bot.token.slice(-4)}</span>
+                  <!-- [CRED-2] Server already returns masked token -->
+                  <span class="meta-val">${escapeHtml(bot.token)}</span>
+                </div>
+                <div class="meta-row">
+                  <span>Secret Token:</span>
+                  <span class="meta-val">${bot.secretToken ? '✅ 已配置' : '❌ 未配置'}</span>
                 </div>
                 <div class="meta-row">
                   <span>Webhook 转发:</span>
-                  <span class="meta-val">\${bot.webhookUrl ? escapeHtml(bot.webhookUrl) : '未配置'}</span>
+                  <span class="meta-val">${bot.webhookUrl ? escapeHtml(bot.webhookUrl) : '未配置'}</span>
                 </div>
               </div>
+              ${!bot.secretToken ? '<div class="security-badge">⚠️ 未设置 Secret Token — 代理路由已锁定</div>' : ''}
             </div>
 
             <div class="bot-actions">
@@ -889,11 +932,23 @@ export function renderDashboardHtml(baseUrl = "") {
       document.getElementById('modal-bot-title').innerText = '编辑 Telegram 机器人';
       document.getElementById('form-bot-id').value = bot.id;
       document.getElementById('form-bot-name').value = bot.name;
+      // [CRED-2] Server returns a masked token (e.g. 12345678...WXYZ).
+      // Pre-fill with it so the user can see it's set; if unchanged, server will keep original.
       document.getElementById('form-bot-token').value = bot.token;
+      const tokenInput = document.getElementById('form-bot-token');
+      tokenInput.placeholder = '保持不变请勿修改，替换请输入完整新 Token';
       document.getElementById('form-bot-alias').value = bot.alias;
       document.getElementById('form-bot-webhook').value = bot.webhookUrl || '';
       document.getElementById('form-bot-secret').value = bot.secretToken || '';
       openModal('bot-modal');
+    }
+
+    /** [ABUSE-1] Generate a cryptographically random Secret Token */
+    function generateSecret() {
+      const array = new Uint8Array(32);
+      crypto.getRandomValues(array);
+      const token = Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
+      document.getElementById('form-bot-secret').value = token;
     }
 
     async function saveBot(e) {
