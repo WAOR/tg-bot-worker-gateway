@@ -8,7 +8,7 @@
   ],
   "vars": {
     "ADMIN_PASSWORD": "admin",
-    "ENABLE_PUBLIC_GATEWAY": "true"
+    "ENABLE_PUBLIC_GATEWAY": "false"
   },
   "kv_namespaces": [
     {

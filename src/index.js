@@ -45,7 +45,7 @@ export default {
 
       // 3. Direct Proxy Route: /bot<TOKEN>/<METHOD>
       if (path.startsWith('/bot')) {
-        return handleDirectProxy(path, url, request, corsHeaders);
+        return handleDirectProxy(path, url, request, corsHeaders, env);
       }
 
       // 4. Alias Gateway Proxy Route: /proxy/<ALIAS>/<METHOD>
@@ -63,7 +63,9 @@ export default {
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     } catch (err) {
-      return new Response(JSON.stringify({ error: 'Internal Server Error', message: err.message }), {
+      // Sanitize token from error message to prevent leakage
+      const safeMessage = err.message ? err.message.replace(/\\d+:[A-Za-z0-9_-]{35,}/g, '[REDACTED_TOKEN]') : 'Unknown error';
+      return new Response(JSON.stringify({ error: 'Internal Server Error', message: safeMessage }), {
         status: 500,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
@@ -122,6 +124,10 @@ async function handleAdminApi(path, request, env, corsHeaders) {
     const body = await request.json().catch(() => ({}));
     const pass = body.password || '';
     const adminPassword = env.ADMIN_PASSWORD || 'admin';
+    
+    // Simple delay to mitigate brute force attacks
+    await new Promise(resolve => setTimeout(resolve, 500));
+
     if (pass === adminPassword) {
       return new Response(JSON.stringify({ success: true, message: 'Authenticated' }), {
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
@@ -250,7 +256,24 @@ async function handleAdminApi(path, request, env, corsHeaders) {
 }
 
 /* --- Direct Proxy: /bot<TOKEN>/<METHOD> --- */
-async function handleDirectProxy(path, url, request, corsHeaders) {
+async function handleDirectProxy(path, url, request, corsHeaders, env) {
+  // Restrict access if ENABLE_PUBLIC_GATEWAY is false
+  const isPublic = env.ENABLE_PUBLIC_GATEWAY === 'true' || env.ENABLE_PUBLIC_GATEWAY === true;
+  if (!isPublic) {
+    const match = path.match(/^\\/bot([^/]+)\\//);
+    if (match) {
+      const token = match[1];
+      const bots = await getBotsList(env);
+      const isAllowed = bots.some(b => b.token === token);
+      if (!isAllowed) {
+        return new Response(JSON.stringify({ error: 'Gateway is private. Token not registered.' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
+    }
+  }
+
   const targetUrl = `https://api.telegram.org${path}${url.search}`;
   
   const headers = new Headers(request.headers);
@@ -296,6 +319,23 @@ async function handleAliasProxy(path, url, request, env, corsHeaders) {
       status: 404,
       headers: { 'Content-Type': 'application/json', ...corsHeaders }
     });
+  }
+
+  // Security check: require secretToken if configured for this bot
+  if (bot.secretToken) {
+    const authHeader = request.headers.get('Authorization') || '';
+    const secretHeader = request.headers.get('X-Telegram-Bot-Api-Secret-Token') || '';
+    
+    let isAuthorized = false;
+    if (secretHeader === bot.secretToken) isAuthorized = true;
+    if (authHeader.startsWith('Bearer ') && authHeader.substring(7) === bot.secretToken) isAuthorized = true;
+    
+    if (!isAuthorized) {
+       return new Response(JSON.stringify({ error: 'Unauthorized. Secret Token required for this proxy route.' }), {
+         status: 403,
+         headers: { 'Content-Type': 'application/json', ...corsHeaders }
+       });
+    }
   }
 
   const targetUrl = `https://api.telegram.org/bot${bot.token}/${method}${url.search}`;
