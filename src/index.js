@@ -64,7 +64,7 @@ export default {
       });
     } catch (err) {
       // Sanitize token from error message to prevent leakage
-      const safeMessage = err.message ? err.message.replace(/\\d+:[A-Za-z0-9_-]{35,}/g, '[REDACTED_TOKEN]') : 'Unknown error';
+      const safeMessage = err.message ? err.message.replace(/\d+:[A-Za-z0-9_-]{35,}/g, '[REDACTED_TOKEN]') : 'Unknown error';
       return new Response(JSON.stringify({ error: 'Internal Server Error', message: safeMessage }), {
         status: 500,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
@@ -260,7 +260,7 @@ async function handleDirectProxy(path, url, request, corsHeaders, env) {
   // Restrict access if ENABLE_PUBLIC_GATEWAY is false
   const isPublic = env.ENABLE_PUBLIC_GATEWAY === 'true' || env.ENABLE_PUBLIC_GATEWAY === true;
   if (!isPublic) {
-    const match = path.match(/^\\/bot([^/]+)\\//);
+    const match = path.match(/^\/bot([^/]+)\//);
     if (match) {
       const token = match[1];
       const bots = await getBotsList(env);

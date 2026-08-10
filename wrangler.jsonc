@@ -6,8 +6,9 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
+  // [SECURITY] ADMIN_PASSWORD must be set as a Wrangler Secret — never hardcode here.
+  // Run once: wrangler secret put ADMIN_PASSWORD
   "vars": {
-    "ADMIN_PASSWORD": "admin",
     "ENABLE_PUBLIC_GATEWAY": "false"
   },
   "kv_namespaces": [
