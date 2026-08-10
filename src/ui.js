@@ -561,11 +561,13 @@ export function renderDashboardHtml(baseUrl = "") {
         <svg viewBox="0 0 24 24" style="width:28px;height:28px;"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
       </div>
       <h2 class="auth-title">网关后台登录</h2>
-      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.5rem;">请输入 ADMIN_PASSWORD 管理密码</p>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.25rem;">请输入 ADMIN_PASSWORD 管理密码</p>
       <div class="form-group">
-        <input type="password" id="admin-pass-input" class="form-control" placeholder="管理员密码" onkeyup="if(event.key==='Enter') loginAdmin()">
+        <input type="password" id="admin-pass-input" class="form-control" placeholder="管理员密码 (默认: admin)" value="admin" onkeyup="if(event.key==='Enter') loginAdmin()">
+        <div class="form-help" style="margin-top: 0.5rem; color: #7dd3fc;">💡 提示：默认本地/初始密码为 <code>admin</code></div>
       </div>
-      <button class="btn btn-primary" style="width: 100%; justify-content: center;" onclick="loginAdmin()">验证登录</button>
+      <button class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 0.5rem;" onclick="loginAdmin()">验证登录</button>
+      <div id="auth-error-msg" style="color: var(--danger); font-size: 0.85rem; margin-top: 0.75rem; display: none;"></div>
     </div>
 
     <!-- Dashboard Screen -->
@@ -759,10 +761,37 @@ export function renderDashboardHtml(baseUrl = "") {
       document.getElementById('dashboard-screen').style.display = 'block';
     }
 
-    function loginAdmin() {
-      const pass = document.getElementById('admin-pass-input').value;
+    async function loginAdmin() {
+      const passInput = document.getElementById('admin-pass-input');
+      const errorDiv = document.getElementById('auth-error-msg');
+      const pass = passInput.value.trim();
+      errorDiv.style.display = 'none';
+
+      if (!pass) {
+        errorDiv.innerText = '请输入密码';
+        errorDiv.style.display = 'block';
+        return;
+      }
+
       setAdminPassword(pass);
-      loadDashboard();
+
+      try {
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pass })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          loadDashboard();
+        } else {
+          errorDiv.innerText = '密码验证失败！默认初始密码为: admin';
+          errorDiv.style.display = 'block';
+        }
+      } catch (err) {
+        errorDiv.innerText = '连接服务器失败: ' + err.message;
+        errorDiv.style.display = 'block';
+      }
     }
 
     function logoutAdmin() {
