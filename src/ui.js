@@ -822,7 +822,7 @@ export function renderDashboardHtml(baseUrl = "") {
         if (res.ok && data.success) {
           loadDashboard();
         } else {
-          errorDiv.innerText = '密码验证失败！默认初始密码为: admin';
+          errorDiv.innerText = data.error || '密码验证失败，请确认 ADMIN_PASSWORD 配置';
           errorDiv.style.display = 'block';
         }
       } catch (err) {
@@ -939,7 +939,13 @@ export function renderDashboardHtml(baseUrl = "") {
       tokenInput.placeholder = '保持不变请勿修改，替换请输入完整新 Token';
       document.getElementById('form-bot-alias').value = bot.alias;
       document.getElementById('form-bot-webhook').value = bot.webhookUrl || '';
-      document.getElementById('form-bot-secret').value = bot.secretToken || '';
+      // [CRED-2] Server returns '***configured***' if secretToken is set.
+      // Show the sentinel in the field; server will keep the original if unchanged.
+      const secretInput = document.getElementById('form-bot-secret');
+      secretInput.value = bot.secretToken || '';
+      if (bot.secretToken === '***configured***') {
+        secretInput.placeholder = '已配置 — 留空或输入新密钥以替换';
+      }
       openModal('bot-modal');
     }
 
@@ -954,13 +960,16 @@ export function renderDashboardHtml(baseUrl = "") {
     async function saveBot(e) {
       e.preventDefault();
       const id = document.getElementById('form-bot-id').value;
+      // [CRED-2] If secretToken field shows the placeholder, send it as-is so
+      // the server knows to keep the existing value unchanged.
+      const secretVal = document.getElementById('form-bot-secret').value.trim();
       const payload = {
         id: id || undefined,
         name: document.getElementById('form-bot-name').value.trim(),
         token: document.getElementById('form-bot-token').value.trim(),
         alias: document.getElementById('form-bot-alias').value.trim(),
         webhookUrl: document.getElementById('form-bot-webhook').value.trim(),
-        secretToken: document.getElementById('form-bot-secret').value.trim()
+        secretToken: secretVal
       };
 
       try {
